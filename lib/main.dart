@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const BpjsAdminApp());
@@ -44,18 +46,27 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
-    const DashboardView(),
+  void _changeTab(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  // Getter pages agar Dashboard selalu direfresh saat dibuka
+  List<Widget> get _pages => [
+    DashboardView(onTabChange: _changeTab),
     const DaftarDokterView(),
     const DataPasienView(),
     const DataObatView(),
+    const DataAntrianView(),
   ];
 
   final List<String> _titles = [
-    "", // Title kosong untuk Dashboard karena custom header
+    "", 
     "Jadwal Dokter",
     "Data Peserta BPJS",
-    "Farmasi & Obat"
+    "Farmasi & Obat",
+    "Antrian Pasien"
   ];
 
   void _onItemTapped(int index) {
@@ -107,6 +118,7 @@ class _MainLayoutState extends State<MainLayout> {
             _buildDrawerItem(1, Icons.medical_services_rounded, "Jadwal Dokter"),
             _buildDrawerItem(2, Icons.people_alt_rounded, "Data Pasien"),
             _buildDrawerItem(3, Icons.medication_rounded, "Stok Obat"),
+            _buildDrawerItem(4, Icons.people_outline_rounded, "Data Antrian"),
             const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16), child: Divider()),
             ListTile(
@@ -119,7 +131,7 @@ class _MainLayoutState extends State<MainLayout> {
           ],
         ),
       ),
-      body: _pages[_selectedIndex],
+      body: _pages[_selectedIndex], 
     );
   }
 
@@ -142,103 +154,87 @@ class _MainLayoutState extends State<MainLayout> {
 }
 
 // =======================================================
-// 2. VIEW: DASHBOARD (COMPACT & INTERACTIVE)
+// 2. VIEW: DASHBOARD (REAL-TIME DATA PER KELAS)
 // =======================================================
-class DashboardView extends StatelessWidget {
-  const DashboardView({super.key});
+class DashboardView extends StatefulWidget {
+  final Function(int) onTabChange;
+  const DashboardView({super.key, required this.onTabChange});
 
-  // Data Dummy untuk Pasien per Kelas
-  final List<Map<String, String>> _pasienKelas1 = const [
-    {"nama": "Bpk. Hartono", "diagnosa": "Demam Berdarah"},
-    {"nama": "Ibu Sulastri", "diagnosa": "Pasca Operasi"},
-    {"nama": "Sdr. Kevin", "diagnosa": "Tifus"},
-  ];
+  @override
+  State<DashboardView> createState() => _DashboardViewState();
+}
 
-  final List<Map<String, String>> _pasienKelas2 = const [
-    {"nama": "Bpk. Jojo", "diagnosa": "Fraktur Ringan"},
-    {"nama": "Adik Bayu", "diagnosa": "ISPA"},
-  ];
+class _DashboardViewState extends State<DashboardView> {
+  // Variabel Global
+  int totalDokter = 0;
+  int totalPasien = 0;
+  int totalObat = 0;
+  int totalAntrian = 0;
 
-  final List<Map<String, String>> _pasienKelas3 = const [
-    {"nama": "Ibu Minah", "diagnosa": "Diabetes Melitus"},
-    {"nama": "Bpk. Asep", "diagnosa": "Hipertensi"},
-    {"nama": "Sdr. Tono", "diagnosa": "Asma"},
-    {"nama": "Ibu Rina", "diagnosa": "Maag Akut"},
-  ];
+  // Variabel Per Kelas
+  int countVIP = 0;
+  int countKelas1 = 0;
+  int countKelas2 = 0;
+  int countKelas3 = 0;
 
-  final List<Map<String, String>> _pasienVIP = const [
-    {"nama": "Bpk. Direktur", "diagnosa": "Checkup Jantung"},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadCounts();
+  }
 
-  // Fungsi untuk menampilkan BottomSheet daftar pasien
-  void _showPatientList(BuildContext context, String title, List<Map<String, String>> data, Color color) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Icon(Icons.bed_rounded, color: color),
-                  ),
-                  const SizedBox(width: 12),
-                  Text("Pasien $title", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Divider(),
-              if (data.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Center(child: Text("Tidak ada pasien saat ini.")),
-                )
-              else
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: data.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.grey.shade100,
-                          child: Text("${index + 1}"),
-                        ),
-                        title: Text(data[index]['nama']!, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text("Diagnosa: ${data[index]['diagnosa']}"),
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
+  Future<void> _loadCounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    List d = jsonDecode(prefs.getString('data_dokter') ?? "[]");
+    List p = jsonDecode(prefs.getString('data_pasien') ?? "[]");
+    List a = jsonDecode(prefs.getString('data_antrian') ?? "[]");
+    List o = jsonDecode(prefs.getString('data_obat') ?? "[]");
+
+    // Hitung Pasien per Kelas
+    int v = 0, k1 = 0, k2 = 0, k3 = 0;
+    
+    // Jika data pasien kosong, kita pakai dummy count default biar tampilan tidak nol semua di awal
+    if (p.isEmpty) {
+       k1 = 1; // Default dummy
+    } else {
+      for (var patient in p) {
+        String kelas = patient['kelas'] ?? "";
+        if (kelas == "VIP") v++;
+        else if (kelas == "Kelas 1") k1++;
+        else if (kelas == "Kelas 2") k2++;
+        else if (kelas == "Kelas 3") k3++;
+      }
+    }
+
+    setState(() {
+      totalDokter = d.isEmpty ? 10 : d.length; 
+      totalPasien = p.isEmpty ? 1 : p.length;
+      totalAntrian = a.isEmpty ? 2 : a.length;
+      totalObat = o.isEmpty ? 15 : o.length;
+      
+      countVIP = v;
+      countKelas1 = k1;
+      countKelas2 = k2;
+      countKelas3 = k3;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    double screenWidth = MediaQuery.of(context).size.width;
+    int gridCount = screenWidth > 900 ? 4 : 2;
+    double childRatio = screenWidth > 900 ? 2.5 : 1.5;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- HEADER LEBIH KECIL (COMPACT) ---
+          // Header
           Container(
-            padding: const EdgeInsets.only(top: 50, left: 20, right: 20, bottom: 20), // Padding dikurangi
+            padding: const EdgeInsets.only(top: 50, left: 20, right: 20, bottom: 20),
             decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF00A651), Color(0xFF008E45)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              gradient: LinearGradient(colors: [Color(0xFF00A651), Color(0xFF008E45)]),
               borderRadius: BorderRadius.only(bottomLeft: Radius.circular(25), bottomRight: Radius.circular(25)),
             ),
             child: Row(
@@ -247,79 +243,92 @@ class DashboardView extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text("Halo, Admin", style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    Text("RS Sehat Sentosa", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text("Selamat Datang,", style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    Text("Admin RS Sehat", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 24),
+                IconButton(
+                  onPressed: _loadCounts,
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  tooltip: "Refresh Data",
                 )
               ],
             ),
           ),
 
-          // --- KONTEN BODY ---
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 1. GRID STATISTIK (DIPERKECIL)
-                GridView.count(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1.8, // Aspect ratio lebih besar agar kartu lebih pendek
-                  children: const [
-                    _CompactStatCard(title: "Total Dokter", value: "32", icon: Icons.medical_services, color: Colors.blue),
-                    _CompactStatCard(title: "Pasien Rawat", value: "142", icon: Icons.bed, color: Colors.orange),
-                    _CompactStatCard(title: "Kamar Kosong", value: "8", icon: Icons.meeting_room, color: Colors.green),
-                    _CompactStatCard(title: "Antrian", value: "56", icon: Icons.people_outline, color: Colors.purple),
-                  ],
-                ),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // --- GRID STATISTIK UTAMA ---
+                    GridView.count(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: gridCount,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: childRatio,
+                      children: [
+                        _CompactStatCard(
+                          title: "Total Dokter", value: "$totalDokter Orang", icon: Icons.medical_services, color: Colors.blue, 
+                          onTap: () => widget.onTabChange(1)), 
+                        _CompactStatCard(
+                          title: "Total Pasien", value: "$totalPasien Orang", icon: Icons.people_alt, color: Colors.orange, 
+                          onTap: () => widget.onTabChange(2)), 
+                        _CompactStatCard(
+                          title: "Jenis Obat", value: "$totalObat Item", icon: Icons.medication, color: Colors.green, 
+                          onTap: () => widget.onTabChange(3)), 
+                        _CompactStatCard(
+                          title: "Antrian", value: "$totalAntrian", icon: Icons.people_outline, color: Colors.purple, 
+                          onTap: () => widget.onTabChange(4)), 
+                      ],
+                    ),
 
-                const SizedBox(height: 20),
-                const Text("Status Rawat Inap (Klik untuk Detail)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                const SizedBox(height: 10),
+                    const SizedBox(height: 25),
+                    const Text("Status Rawat Inap per Kelas", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                    const SizedBox(height: 10),
 
-                // 2. BAGIAN KLASIFIKASI KELAS (DAPAT DIKLIK)
-                Row(
-                  children: [
-                    Expanded(child: _ClassCard(title: "VIP", count: _pasienVIP.length, color: Colors.purple, onTap: () => _showPatientList(context, "VIP", _pasienVIP, Colors.purple))),
-                    const SizedBox(width: 10),
-                    Expanded(child: _ClassCard(title: "Kelas 1", count: _pasienKelas1.length, color: Colors.blue, onTap: () => _showPatientList(context, "Kelas 1", _pasienKelas1, Colors.blue))),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(child: _ClassCard(title: "Kelas 2", count: _pasienKelas2.length, color: Colors.orange, onTap: () => _showPatientList(context, "Kelas 2", _pasienKelas2, Colors.orange))),
-                    const SizedBox(width: 10),
-                    Expanded(child: _ClassCard(title: "Kelas 3", count: _pasienKelas3.length, color: Colors.green, onTap: () => _showPatientList(context, "Kelas 3", _pasienKelas3, Colors.green))),
-                  ],
-                ),
+                    // --- BAGIAN BARU: GRID KELAS BPJS/VIP ---
+                    GridView.count(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: gridCount, // Responsif mengikuti lebar layar
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: childRatio, // Rasio kotak
+                      children: [
+                        _ClassStatCard(title: "VIP", count: countVIP, color: Colors.purple, onTap: () => widget.onTabChange(2)),
+                        _ClassStatCard(title: "Kelas 1", count: countKelas1, color: Colors.indigo, onTap: () => widget.onTabChange(2)),
+                        _ClassStatCard(title: "Kelas 2", count: countKelas2, color: Colors.teal, onTap: () => widget.onTabChange(2)),
+                        _ClassStatCard(title: "Kelas 3", count: countKelas3, color: Colors.blueGrey, onTap: () => widget.onTabChange(2)),
+                      ],
+                    ),
 
-                const SizedBox(height: 20),
-                // 3. ANTRIAN COMPACT
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Antrian Terkini", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                    TextButton(onPressed: () {}, child: const Text("Lihat Semua", style: TextStyle(fontSize: 12)))
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.shade100)
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Colors.blue),
+                          const SizedBox(width: 12),
+                          Expanded(child: Text("Data kelas di atas dihitung otomatis berdasarkan data 'Peserta BPJS' yang Anda input.", style: TextStyle(color: Colors.blue.shade900))),
+                        ],
+                      ),
+                    )
                   ],
                 ),
-                Column(
-                  children: [
-                    _QueueItemCompact(nama: "Bpk. Rahmad", poli: "Poli Jantung", no: "A-01", status: "Periksa"),
-                    _QueueItemCompact(nama: "Ibu Susi", poli: "Poli Gigi", no: "B-12", status: "Menunggu"),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -328,56 +337,15 @@ class DashboardView extends StatelessWidget {
   }
 }
 
-// Widget Kartu Statistik Kecil
+// Widget Kartu Statistik Biasa
 class _CompactStatCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
   final Color color;
-
-  const _CompactStatCard({required this.title, required this.value, required this.icon, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                Text(title, style: TextStyle(fontSize: 11, color: Colors.grey[600], overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-}
-
-// Widget Kartu Kelas (Clickable)
-class _ClassCard extends StatelessWidget {
-  final String title;
-  final int count;
-  final Color color;
   final VoidCallback onTap;
 
-  const _ClassCard({required this.title, required this.count, required this.color, required this.onTap});
+  const _CompactStatCard({required this.title, required this.value, required this.icon, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -388,23 +356,16 @@ class _ClassCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: Colors.grey.shade100),
           ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
-                  const SizedBox(height: 4),
-                  Text("$count Pasien", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey[400])
+              Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 18)),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))), Text(title, style: TextStyle(fontSize: 11, color: Colors.grey[600], overflow: TextOverflow.ellipsis))]))
             ],
           ),
         ),
@@ -413,44 +374,127 @@ class _ClassCard extends StatelessWidget {
   }
 }
 
-// Widget Antrian Compact
-class _QueueItemCompact extends StatelessWidget {
-  final String nama;
-  final String poli;
-  final String no;
-  final String status;
+// Widget Kartu Khusus Kelas
+class _ClassStatCard extends StatelessWidget {
+  final String title;
+  final int count;
+  final Color color;
+  final VoidCallback onTap;
 
-  const _QueueItemCompact({required this.nama, required this.poli, required this.no, required this.status});
+  const _ClassStatCard({required this.title, required this.count, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    bool isActive = status == "Periksa";
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: isActive ? Border.all(color: const Color(0xFF00A651).withOpacity(0.5)) : null,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3)),
+            color: color.withOpacity(0.05), // Sedikit warna background
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+                  Icon(Icons.bed_outlined, color: color, size: 20),
+                ],
+              ),
+              const Spacer(),
+              Text("$count Pasien", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text("Terisi saat ini", style: TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ),
+        ),
       ),
-      child: Row(
+    );
+  }
+}
+
+// =======================================================
+// 3. VIEW: DATA ANTRIAN (POLI LENGKAP)
+// =======================================================
+class DataAntrianView extends StatefulWidget {
+  const DataAntrianView({super.key});
+  @override
+  State<DataAntrianView> createState() => _DataAntrianViewState();
+}
+class _DataAntrianViewState extends State<DataAntrianView> {
+  List<Map<String, dynamic>> queues = [];
+  String _searchQuery = "";
+
+  final List<String> daftarPoli = [
+    "Poli Umum", "Poli Gigi & Mulut", "Poli Penyakit Dalam", "Poli Anak (Pediatri)",
+    "Poli Kandungan (Obgyn)", "Poli Bedah Umum", "Poli Mata", "Poli THT",
+    "Poli Saraf (Neurologi)", "Poli Jantung & Pembuluh", "Poli Kulit & Kelamin",
+    "Poli Paru", "Poli Orthopedi (Tulang)", "Poli Rehabilitasi Medik", "IGD (Gawat Darurat)"
+  ];
+
+  @override
+  void initState() { super.initState(); _loadData(); }
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? dataString = prefs.getString('data_antrian');
+    if (dataString != null) { setState(() { queues = List<Map<String, dynamic>>.from(jsonDecode(dataString)); }); } 
+    else { setState(() { queues = [{"nama": "Bpk. Rahmad", "poli": "Poli Jantung & Pembuluh", "no": "A-001", "status": "Periksa"}, {"nama": "Ibu Susi", "poli": "Poli Gigi & Mulut", "no": "B-005", "status": "Menunggu"}]; }); }
+  }
+  Future<void> _saveData() async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('data_antrian', jsonEncode(queues)); }
+  
+  void _showQueueDialog({Map<String, dynamic>? item, int? index}) {
+    String nama = item?['nama'] ?? "";
+    String poli = item?['poli'] ?? "Poli Umum";
+    String no = item?['no'] ?? "";
+    if (!daftarPoli.contains(poli)) poli = "Poli Umum";
+
+    showDialog(context: context, builder: (c) => AlertDialog(
+      title: Text(index == null ? "Tambah Antrian" : "Edit Antrian"), 
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: TextEditingController(text: nama), decoration: const InputDecoration(labelText: "Nama Pasien"), onChanged: (v) => nama = v), 
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: poli, isExpanded: true, decoration: const InputDecoration(labelText: "Tujuan Poli", border: OutlineInputBorder()),
+            items: daftarPoli.map((e)=>DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 14)))).toList(), 
+            onChanged: (v)=>poli=v!
+          ), 
+          const SizedBox(height: 10),
+          TextField(controller: TextEditingController(text: no), decoration: const InputDecoration(labelText: "Nomor Antrian"), onChanged: (v) => no = v)
+        ]),
+      ), 
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Batal")), 
+        ElevatedButton(onPressed: (){ if(nama.isNotEmpty){ setState(() { if(index==null) { queues.add({"nama": nama, "poli": poli, "no": no, "status": "Menunggu"}); } else { queues[index] = {"nama": nama, "poli": poli, "no": no, "status": item?['status']}; } }); _saveData(); Navigator.pop(c); }}, child: const Text("Simpan"))
+      ]
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = queues.where((e) => e['nama'].toLowerCase().contains(_searchQuery.toLowerCase()) || e['no'].toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(onPressed: () => _showQueueDialog(), backgroundColor: Colors.purple, icon: const Icon(Icons.add, color: Colors.white), label: const Text("Antrian")),
+      body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(6)),
-            child: Text(no, style: const TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(nama, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                Text(poli, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              ],
-            ),
-          ),
-          Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isActive ? const Color(0xFF00A651) : Colors.orange)),
+          Padding(padding: const EdgeInsets.all(16), child: TextField(decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: "Cari nomor atau nama...", filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)), onChanged: (v) => setState(() => _searchQuery = v))),
+          Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: filtered.length, itemBuilder: (context, index) {
+            final realIndex = queues.indexOf(filtered[index]);
+            final q = filtered[index];
+            bool isChecking = q['status'] == "Periksa";
+            return Container(margin: const EdgeInsets.only(bottom: 12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: isChecking ? Border.all(color: Colors.green, width: 2) : null), child: ListTile(leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)), child: Text(q['no'], style: const TextStyle(fontWeight: FontWeight.bold))), title: Text(q['nama'], style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(q['poli']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _showQueueDialog(item: q, index: realIndex)),
+              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: (){ setState(() { queues.removeAt(realIndex); }); _saveData(); })
+            ])));
+          }))
         ],
       ),
     );
@@ -458,220 +502,149 @@ class _QueueItemCompact extends StatelessWidget {
 }
 
 // =======================================================
-// 3. VIEW: DOKTER (LEBIH BANYAK DATA)
+// 4. VIEW: DATA DOKTER (DATA BANYAK & LENGKAP)
 // =======================================================
-class DaftarDokterView extends StatelessWidget {
+class DaftarDokterView extends StatefulWidget {
   const DaftarDokterView({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    // Data Dokter diperbanyak
-    final List<Map<String, dynamic>> doctors = [
-      {"name": "Dr. Budi Santoso, Sp.PD", "specialist": "Penyakit Dalam", "time": "08:00 - 14:00", "status": "Praktek"},
-      {"name": "Dr. Siti Aminah, Sp.A", "specialist": "Spesialis Anak", "time": "09:00 - 15:00", "status": "Istirahat"},
-      {"name": "Dr. Andi Wijaya, Sp.JP", "specialist": "Jantung & Pembuluh", "time": "13:00 - 18:00", "status": "Praktek"},
-      {"name": "Dr. Sarah Larasati, Sp.KK", "specialist": "Kulit & Kelamin", "time": "10:00 - 16:00", "status": "Praktek"},
-      {"name": "Dr. Robertus, Sp.B", "specialist": "Bedah Umum", "time": "07:00 - 12:00", "status": "Pulang"},
-      {"name": "Dr. Linda Kurnia, Sp.M", "specialist": "Spesialis Mata", "time": "14:00 - 20:00", "status": "Praktek"},
-      {"name": "Dr. Handoko, Sp.OG", "specialist": "Kandungan", "time": "08:00 - 14:00", "status": "Operasi"},
-      {"name": "Dr. Feri Irawan, Sp.S", "specialist": "Saraf", "time": "15:00 - 21:00", "status": "Menunggu"},
-      {"name": "Dr. Citra Kirana, Sp.KJ", "specialist": "Kesehatan Jiwa", "time": "09:00 - 15:00", "status": "Praktek"},
-      {"name": "Drg. Doni Pratama", "specialist": "Gigi & Mulut", "time": "08:00 - 16:00", "status": "Praktek"},
-    ];
+  State<DaftarDokterView> createState() => _DaftarDokterViewState();
+}
+class _DaftarDokterViewState extends State<DaftarDokterView> {
+  List<Map<String, dynamic>> doctors = [];
+  String _searchQuery = "";
+  
+  @override void initState() { super.initState(); _loadData(); }
+  
+  Future<void> _loadData() async { 
+    final prefs = await SharedPreferences.getInstance(); 
+    final d = prefs.getString('data_dokter');
+    
+    if (d == null || (jsonDecode(d) as List).length <= 1) {
+      List<Map<String, dynamic>> dataLengkap = [
+        {"name": "Dr. Budi Santoso, Sp.PD", "specialist": "Penyakit Dalam", "time": "08:00 - 14:00", "status": "Praktek"},
+        {"name": "Dr. Siti Aminah, Sp.A", "specialist": "Spesialis Anak", "time": "09:00 - 15:00", "status": "Istirahat"},
+        {"name": "Dr. Andi Wijaya, Sp.JP", "specialist": "Jantung", "time": "10:00 - 16:00", "status": "Praktek"},
+        {"name": "Dr. Citra Kirana, Sp.OG", "specialist": "Kandungan", "time": "08:00 - 13:00", "status": "Selesai"},
+        {"name": "Drg. Doni Pratama", "specialist": "Gigi & Mulut", "time": "14:00 - 20:00", "status": "Praktek"},
+        {"name": "Dr. Eka Saputra, Sp.B", "specialist": "Bedah Umum", "time": "13:00 - 18:00", "status": "Operasi"},
+        {"name": "Dr. Feri Irawan, Sp.S", "specialist": "Saraf", "time": "09:00 - 15:00", "status": "Praktek"},
+        {"name": "Dr. Gina Lestari, Sp.M", "specialist": "Mata", "time": "15:00 - 19:00", "status": "Menunggu"},
+        {"name": "Dr. Hadi Sucipto, Sp.THT", "specialist": "THT", "time": "08:00 - 12:00", "status": "Cuti"},
+        {"name": "Dr. Indah Permata", "specialist": "Umum", "time": "24 Jam", "status": "Praktek"},
+      ];
+      setState(() { doctors = dataLengkap; });
+      await prefs.setString('data_dokter', jsonEncode(dataLengkap));
+    } else {
+      setState(() { doctors = List<Map<String, dynamic>>.from(jsonDecode(d)); }); 
+    }
+  }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: doctors.length,
-      itemBuilder: (context, index) {
-        final doc = doctors[index];
-        String status = doc['status'];
-        Color statusColor;
-        Color bgStatusColor;
+  Future<void> _saveData() async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('data_dokter', jsonEncode(doctors)); }
+  
+  void _showDialog({Map<String, dynamic>? item, int? index}) {
+    String name=item?['name']??"", specialist=item?['specialist']??"", time=item?['time']??"";
+    showDialog(context: context, builder: (c) => AlertDialog(title: Text(index==null?"Tambah":"Edit"), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: TextEditingController(text: name), decoration: const InputDecoration(labelText: "Nama"), onChanged: (v)=>name=v), TextField(controller: TextEditingController(text: specialist), decoration: const InputDecoration(labelText: "Spesialis"), onChanged: (v)=>specialist=v), TextField(controller: TextEditingController(text: time), decoration: const InputDecoration(labelText: "Jam"), onChanged: (v)=>time=v)]), actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Batal")), ElevatedButton(onPressed: (){ if(name.isNotEmpty){ setState(() { if(index==null) doctors.add({"name": name, "specialist": specialist, "time": time, "status": "Praktek"}); else doctors[index] = {"name": name, "specialist": specialist, "time": time, "status": item?['status']}; }); _saveData(); Navigator.pop(c); }}, child: const Text("Simpan"))]));
+  }
 
-        if (status == "Praktek") {
-          statusColor = const Color(0xFF2E7D32);
-          bgStatusColor = const Color(0xFFE8F5E9);
-        } else if (status == "Istirahat" || status == "Menunggu") {
-          statusColor = Colors.orange[800]!;
-          bgStatusColor = Colors.orange[50]!;
-        } else if (status == "Operasi") {
-          statusColor = Colors.red[800]!;
-          bgStatusColor = Colors.red[50]!;
-        } else {
-          statusColor = Colors.grey;
-          bgStatusColor = Colors.grey[200]!;
-        }
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))],
-            border: Border.all(color: Colors.grey.shade100),
-          ),
-          child: Row(
-            children: [
-              Container(
-                height: 50, width: 50,
-                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
-                child: const Icon(Icons.person_rounded, color: Colors.blue, size: 28),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(doc['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    Text(doc['specialist'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      Icon(Icons.schedule_rounded, size: 12, color: Colors.grey[600]),
-                      const SizedBox(width: 4),
-                      Text(doc['time'], style: TextStyle(color: Colors.grey[700], fontSize: 11)),
-                    ]),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: bgStatusColor,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11)),
-              )
-            ],
-          ),
-        );
-      },
-    );
+  @override Widget build(BuildContext context) {
+    final filtered = doctors.where((e) => e['name'].toLowerCase().contains(_searchQuery.toLowerCase()) || e['specialist'].toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+    return Scaffold(backgroundColor: Colors.transparent, floatingActionButton: FloatingActionButton.extended(onPressed: () => _showDialog(), backgroundColor: Colors.blue, icon: const Icon(Icons.add, color: Colors.white), label: const Text("Dokter")), body: Column(children: [
+      Padding(padding: const EdgeInsets.all(16), child: TextField(decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: "Cari dokter atau spesialis...", filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)), onChanged: (v) => setState(() => _searchQuery = v))),
+      Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: filtered.length, itemBuilder: (c, i){ final realIndex = doctors.indexOf(filtered[i]); final d = filtered[i]; return Card(color: Colors.white, elevation: 0, shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)), child: ListTile(leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.person, color: Colors.blue)), title: Text(d['name'], style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text("${d['specialist']}\n${d['time']}"), isThreeLine: true, trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _showDialog(item: d, index: realIndex)), IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: (){ setState(() { doctors.removeAt(realIndex); }); _saveData(); })]))); }))
+    ]));
   }
 }
 
 // =======================================================
-// 4. VIEW: DATA PASIEN (TETAP)
+// 5. VIEW: DATA PASIEN
 // =======================================================
 class DataPasienView extends StatefulWidget {
   const DataPasienView({super.key});
-
-  @override
-  State<DataPasienView> createState() => _DataPasienViewState();
+  @override State<DataPasienView> createState() => _DataPasienViewState();
 }
-
 class _DataPasienViewState extends State<DataPasienView> {
-  List<Map<String, dynamic>> patients = [
-    {"nama": "Budi Santoso", "nik": "320112345678", "status": "Aktif", "kelas": "Kelas 1"},
-    {"nama": "Rina Wati", "nik": "320198765432", "status": "Menunggak", "kelas": "Kelas 2"},
-    {"nama": "Ahmad Dani", "nik": "320444555666", "status": "Aktif", "kelas": "VIP"},
-    {"nama": "Siti Nurhaliza", "nik": "320777888999", "status": "Aktif", "kelas": "Kelas 3"},
-  ];
-
-  void _showAddPatientDialog() {
-    // ... Logika tambah pasien sama seperti sebelumnya ...
-    // Disingkat untuk fokus ke perubahan utama
+  List<Map<String, dynamic>> patients = [];
+  String _searchQuery = "";
+  @override void initState() { super.initState(); _loadData(); }
+  Future<void> _loadData() async { final prefs = await SharedPreferences.getInstance(); final d = prefs.getString('data_pasien'); setState(() { patients = d!=null ? List<Map<String, dynamic>>.from(jsonDecode(d)) : [{"nama": "Budi Santoso", "nik": "12345", "status": "Aktif", "kelas": "Kelas 1"}]; }); }
+  Future<void> _saveData() async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('data_pasien', jsonEncode(patients)); }
+  void _showDialog({Map<String, dynamic>? item, int? index}) {
+    String nama=item?['nama']??"", nik=item?['nik']??"", kelas=item?['kelas']??"Kelas 3";
+    showDialog(context: context, builder: (c) => AlertDialog(title: Text(index==null?"Tambah":"Edit"), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: TextEditingController(text: nama), decoration: const InputDecoration(labelText: "Nama"), onChanged: (v)=>nama=v), TextField(controller: TextEditingController(text: nik), decoration: const InputDecoration(labelText: "NIK"), onChanged: (v)=>nik=v), DropdownButtonFormField(value: kelas, items: ["Kelas 1", "Kelas 2", "Kelas 3", "VIP"].map((e)=>DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v)=>kelas=v!)]), actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Batal")), ElevatedButton(onPressed: (){ if(nama.isNotEmpty){ setState(() { if(index==null) patients.add({"nama": nama, "nik": nik, "status": "Aktif", "kelas": kelas}); else patients[index] = {"nama": nama, "nik": nik, "status": item?['status'], "kelas": kelas}; }); _saveData(); Navigator.pop(c); }}, child: const Text("Simpan"))]));
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddPatientDialog,
-        backgroundColor: const Color(0xFF00A651),
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text("Tambah", style: TextStyle(color: Colors.white)),
-      ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(20),
-        itemCount: patients.length,
-        itemBuilder: (context, index) {
-          final p = patients[index];
-          Color statusColor = p['status'] == "Aktif" ? Colors.green : Colors.orange;
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade100),
-            ),
-            child: ListTile(
-              leading: CircleAvatar(backgroundColor: const Color(0xFF00A651).withOpacity(0.1), child: Text(p['nama'][0], style: const TextStyle(color: Color(0xFF00A651), fontWeight: FontWeight.bold))),
-              title: Text(p['nama'], style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("NIK: ${p['nik']} • ${p['kelas']}", style: const TextStyle(fontSize: 12)),
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                child: Text(p['status'], style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  @override Widget build(BuildContext context) {
+    final filtered = patients.where((e) => e['nama'].toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+    return Scaffold(backgroundColor: Colors.transparent, floatingActionButton: FloatingActionButton.extended(onPressed: () => _showDialog(), backgroundColor: const Color(0xFF00A651), icon: const Icon(Icons.add, color: Colors.white), label: const Text("Peserta")), body: Column(children: [
+      Padding(padding: const EdgeInsets.all(16), child: TextField(decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: "Cari peserta...", filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)), onChanged: (v) => setState(() => _searchQuery = v))),
+      Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: filtered.length, itemBuilder: (c, i) { final realIndex = patients.indexOf(filtered[i]); final p = filtered[i]; return Card(color: Colors.white, elevation: 0, shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)), child: ListTile(leading: CircleAvatar(child: Text(p['nama'][0])), title: Text(p['nama'], style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text("${p['nik']} - ${p['kelas']}"), trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _showDialog(item: p, index: realIndex)), IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: (){ setState(() { patients.removeAt(realIndex); }); _saveData(); })]))); }))
+    ]));
   }
 }
 
 // =======================================================
-// 5. VIEW: DATA OBAT (TETAP)
+// 6. VIEW: DATA OBAT (DATA LENGKAP & STOK)
 // =======================================================
 class DataObatView extends StatefulWidget {
   const DataObatView({super.key});
-
-  @override
-  State<DataObatView> createState() => _DataObatViewState();
+  @override State<DataObatView> createState() => _DataObatViewState();
 }
-
 class _DataObatViewState extends State<DataObatView> {
-  // Data obat ...
-  List<Map<String, dynamic>> medicines = [
-    {"nama": "Paracetamol 500mg", "stok": 150, "jenis": "Tablet", "harga": "Rp 5.000"},
-    {"nama": "Amoxicillin", "stok": 45, "jenis": "Kapsul", "harga": "Rp 12.000"},
-    {"nama": "Betadine Cair", "stok": 20, "jenis": "Botol", "harga": "Rp 25.000"},
-  ];
+  List<Map<String, dynamic>> medicines = [];
+  String _searchQuery = "";
+  
+  @override void initState() { super.initState(); _loadData(); }
+  
+  Future<void> _loadData() async { 
+    final prefs = await SharedPreferences.getInstance(); 
+    final d = prefs.getString('data_obat');
+    
+    if (d == null || (jsonDecode(d) as List).length <= 1) {
+      List<Map<String, dynamic>> obatLengkap = [
+          {"nama": "Paracetamol 500mg", "stok": 150, "jenis": "Tablet", "harga": "Rp 5.000"},
+          {"nama": "Amoxicillin 500mg", "stok": 45, "jenis": "Kapsul", "harga": "Rp 12.000"},
+          {"nama": "Betadine Cair 30ml", "stok": 20, "jenis": "Botol", "harga": "Rp 25.000"},
+          {"nama": "Vitamin C IPI", "stok": 200, "jenis": "Botol", "harga": "Rp 8.000"},
+          {"nama": "Omeprazole 20mg", "stok": 30, "jenis": "Kapsul", "harga": "Rp 15.000"},
+          {"nama": "Ibuprofen 400mg", "stok": 80, "jenis": "Tablet", "harga": "Rp 6.000"},
+          {"nama": "OBH Combi Anak", "stok": 15, "jenis": "Sirup", "harga": "Rp 18.000"},
+          {"nama": "Mylanta Cair", "stok": 25, "jenis": "Sirup", "harga": "Rp 22.000"},
+          {"nama": "Amlodipine 5mg", "stok": 100, "jenis": "Tablet", "harga": "Rp 7.500"},
+          {"nama": "Metformin 500mg", "stok": 120, "jenis": "Tablet", "harga": "Rp 5.000"},
+          {"nama": "Masker Medis (Box)", "stok": 50, "jenis": "Box", "harga": "Rp 35.000"},
+          {"nama": "Hand Sanitizer 100ml", "stok": 10, "jenis": "Botol", "harga": "Rp 15.000"},
+          {"nama": "Salonpas Koyo", "stok": 150, "jenis": "Sachet", "harga": "Rp 12.000"},
+          {"nama": "Minyak Kayu Putih", "stok": 40, "jenis": "Botol", "harga": "Rp 28.000"},
+          {"nama": "Antibiotik Salep", "stok": 18, "jenis": "Tube", "harga": "Rp 20.000"},
+      ];
+      setState(() { medicines = obatLengkap; });
+      await prefs.setString('data_obat', jsonEncode(obatLengkap));
+    } else {
+      setState(() { medicines = List<Map<String, dynamic>>.from(jsonDecode(d)); }); 
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-     return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(
-        onPressed: (){},
-        backgroundColor: Colors.blue,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: medicines.length,
-        separatorBuilder: (c, i) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final med = medicines[index];
-          Color stockColor = (med['stok'] < 50) ? Colors.red : Colors.green;
-
-          return Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade100)),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
-                child: Icon(Icons.vaccines_rounded, color: Colors.blue.shade700),
-              ),
-              title: Text(med['nama'], style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("${med['jenis']} • ${med['harga']}"),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text("${med['stok']}", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 18)),
-                  Text("Stok", style: TextStyle(color: Colors.grey[400], fontSize: 10)),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  Future<void> _saveData() async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('data_obat', jsonEncode(medicines)); }
+  void _updateStock(int index, int amount) {
+    setState(() {
+      int newStock = medicines[index]['stok'] + amount;
+      if (newStock >= 0) medicines[index]['stok'] = newStock;
+    });
+    _saveData();
+  }
+  void _showDialog({Map<String, dynamic>? item, int? index}) {
+    String nama=item?['nama']??"", jenis=item?['jenis']??"Tablet", harga=item?['harga']??"", stok=item?['stok'].toString()??"0";
+    showDialog(context: context, builder: (c) => AlertDialog(title: Text(index==null?"Tambah":"Edit"), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: TextEditingController(text: nama), decoration: const InputDecoration(labelText: "Nama"), onChanged: (v)=>nama=v), TextField(controller: TextEditingController(text: jenis), decoration: const InputDecoration(labelText: "Jenis"), onChanged: (v)=>jenis=v), TextField(controller: TextEditingController(text: harga), decoration: const InputDecoration(labelText: "Harga"), onChanged: (v)=>harga=v), TextField(controller: TextEditingController(text: stok), decoration: const InputDecoration(labelText: "Stok"), keyboardType: TextInputType.number, onChanged: (v)=>stok=v)]), actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text("Batal")), ElevatedButton(onPressed: (){ if(nama.isNotEmpty){ setState(() { if(index==null) medicines.add({"nama": nama, "stok": int.tryParse(stok)??0, "jenis": jenis, "harga": harga}); else medicines[index] = {"nama": nama, "stok": int.tryParse(stok)??0, "jenis": jenis, "harga": harga}; }); _saveData(); Navigator.pop(c); }}, child: const Text("Simpan"))]));
+  }
+  @override Widget build(BuildContext context) {
+    final filtered = medicines.where((e) => e['nama'].toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+    return Scaffold(backgroundColor: Colors.transparent, floatingActionButton: FloatingActionButton(onPressed: () => _showDialog(), backgroundColor: Colors.blue, child: const Icon(Icons.add, color: Colors.white)), body: Column(children: [
+      Padding(padding: const EdgeInsets.all(16), child: TextField(decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: "Cari obat...", filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)), onChanged: (v) => setState(() => _searchQuery = v))),
+      Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: filtered.length, itemBuilder: (c, i) { final realIndex = medicines.indexOf(filtered[i]); final m = filtered[i]; return Card(color: Colors.white, elevation: 0, shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)), child: ListTile(leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.medication, color: Colors.orange)), title: Text(m['nama'], style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text("${m['jenis']} - ${m['harga']}"), trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.grey), onPressed: () => _updateStock(realIndex, -1)),
+        Text("${m['stok']}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: (m['stok'] as int) < 20 ? Colors.red : Colors.green)),
+        IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue), onPressed: () => _updateStock(realIndex, 1)),
+        PopupMenuButton(onSelected: (v) { if(v=='edit') _showDialog(item: m, index: realIndex); else { setState(() { medicines.removeAt(realIndex); }); _saveData(); } }, itemBuilder: (c) => [const PopupMenuItem(value: 'edit', child: Text("Edit")), const PopupMenuItem(value: 'del', child: Text("Hapus", style: TextStyle(color: Colors.red)))])
+      ]))); }))
+    ]));
   }
 }
